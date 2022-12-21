@@ -1,0 +1,270 @@
+#!/bin/sh
+case "$1" in
+save)
+	/etc/scripts/dbsave.sh
+	;;
+freset)
+	devconf del
+	;;
+isfreset)
+	SIZE=`devconf dump | scut -p "Data size :" -f 1`
+	if [ "$SIZE" = "0" ]; then
+		echo "YES"
+	else
+		echo "NO"
+	fi
+	;;
+init)
+	if [ $# -ne 12 ]; then
+		echo "Usage:"
+		echo "  mfc init <LANMAC> <WLAN24MAC> <WLAN5MAC> <WANMAC> <COUNTRYCODE> <HWREV> <PIN> <WIFIPASSWORD> <WLAN24SSID> <WLAN5SSID> <S/N>"
+		echo "  Support Countrycode : US NA GB EU ES FR JP IL TW RU CN KR AU CA SG LA BR"
+		exit 1
+	fi
+	LANMAC=`echo -e $2 | tr [A-Z] [a-z]`
+	WLAN24MAC=`echo -e $3 | tr [A-Z] [a-z]`
+	WLAN5MAC=`echo -e $4 | tr [A-Z] [a-z]`
+	WANMAC=`echo -e $5 | tr [A-Z] [a-z]`
+	CCODE="$6"
+	HWREV=`echo -e $7 | tr [a-z] [A-Z]`
+	PIN="$8"
+	WIFIPWD="$9"
+	WLAN24SSID="${10}"
+	WLAN5SSID="${11}"
+	SN="${12}"
+	
+	LANMAC_ET=`echo -e $LANMAC | tr -d :`
+	WLAN24MAC_ET=`echo -e $WLAN24MAC | tr -d :`
+	WLAN5MAC_ET=`echo -e $WLAN5MAC | tr -d :`
+	WANMAC_ET=`echo -e $WANMAC | tr -d :`
+	
+	[ "$LANMAC" != "" ] && DEVDATA="$DEVDATA -e lanmac=$LANMAC"
+	[ "$WLAN24MAC" != "" ] && DEVDATA="$DEVDATA -e wlanmac=$WLAN24MAC"
+	[ "$WLAN5MAC" != "" ] && DEVDATA="$DEVDATA -e wlan5mac=$WLAN5MAC"
+	[ "$WANMAC" != "" ] && DEVDATA="$DEVDATA -e wanmac=$WANMAC"
+	[ "$CCODE" = "" ] && CCODE="US"
+	[ "$PIN" != "" ] && DEVDATA="$DEVDATA -e pin=$PIN"
+	[ "$WIFIPWD" != "" ] && DEVDATA="$DEVDATA -e psk=$WIFIPWD"
+	[ "$WLAN24SSID" != "" ] && DEVDATA="$DEVDATA -e wifissid_2g=$WLAN24SSID"
+	[ "$WLAN5SSID" != "" ] && DEVDATA="$DEVDATA -e wifissid_5g=$WLAN5SSID"
+	[ "$SN" != "" ] && DEVDATA="$DEVDATA -e sn=$SN"
+#==================following is ET data=====================================
+	[ "$LANMAC_ET" != "" ] && flash set HW_NIC0_ADDR $LANMAC_ET
+	[ "$WLAN24MAC_ET" != "" ] && flash set HW_WLAN1_WLAN_ADDR $WLAN24MAC_ET
+	[ "$WLAN24MAC_ET" != "" ] && writemac `echo ${WLAN24MAC_ET} | cut -c 12-12` `echo ${WLAN24MAC_ET} | cut -c 1-11` 24g
+	[ "$WLAN5MAC_ET" != "" ] && flash set HW_WLAN0_WLAN_ADDR $WLAN5MAC_ET
+	[ "$WLAN5MAC_ET" != "" ] && writemac `echo ${WLAN5MAC_ET} | cut -c 12-12` `echo ${WLAN5MAC_ET} | cut -c 1-11` 5g
+	[ "$WANMAC_ET" != "" ] && flash set HW_NIC1_ADDR $WANMAC_ET
+#	[ "$REGDOMAIN" = "" ] && flash set HW_REG_DOMAIN $REGDOMAIN
+	[ "$PIN" != "" ] && flash set HW_WLAN0_WSC_PIN $PIN
+	[ "$PIN" != "" ] && flash set HW_WLAN1_WSC_PIN $PIN
+	
+	echo "clean devdata"
+	devdata clean
+	echo "devdata set -e countrycode=$CCODE -e hwver=$HWREV $DEVDATA -f" > /dev/console
+	devdata set -e countrycode=$CCODE -e hwver=$HWREV $DEVDATA -f
+
+	echo "-------- devdata dump ----------------------" > /dev/console
+	devdata dump
+	;;
+dump)
+	devdata dump
+	;;
+ver)
+	echo Ver `cat /etc/config/buildver` `cat /etc/config/buildrev` Build `cat /etc/config/buildno`
+	;;
+get)
+	[ "$2" != "" ] && devdata get -e $2
+	;;
+set)
+	[ "$2" != "" ] && devdata set -e $2
+	;;
+test)
+	case $2 in
+	on)
+		usockc /var/gpio_ctrl DEBUG
+		;;
+	off)
+		usockc /var/gpio_ctrl NODEBUG
+		;;
+	esac
+	;;
+wlan24)
+	ifconfig wlan1 down
+	brctl delif br0 wlan1
+	killall hostapd
+	flash set_mib wlan1
+	iwpriv wlan1 set_mib band=11
+	case "$4" in
+	"HT20")
+		iwpriv wlan1 set_mib use40M=0
+	;;
+	"HT40")
+		iwpriv wlan1 set_mib use40M=1
+		iwpriv wlan1 set_mib coexist=0
+	;;
+	esac
+	if [ $3 -lt 5 ]; then
+		iwpriv wlan1 set_mib 2ndchoffset=2
+	else
+		iwpriv wlan1 set_mib 2ndchoffset=1
+	fi	
+	iwpriv wlan1 set_mib channel=$3
+	iwpriv wlan1 set_mib ssid=$2
+	iwpriv wlan1 set_mib authtype=0
+	iwpriv wlan1 set_mib encmode=0
+	brctl addif br0 wlan1
+	ifconfig wlan1 up
+	;;
+wlan5)
+	ifconfig wlan0 down
+	brctl delif br0 wlan0
+	killall hostapd
+	flash set_mib wlan0
+	iwpriv wlan0 set_mib band=76
+	case "$4" in
+	"HT20")
+		iwpriv wlan0 set_mib use40M=0
+	;;
+	"HT40")
+		iwpriv wlan0 set_mib use40M=1
+		iwpriv wlan0 set_mib coexist=0
+	;;
+	"HT80")
+		iwpriv wlan0 set_mib use40M=2
+		iwpriv wlan0 set_mib coexist=0
+	;;
+	esac
+	if	[ $3 -eq 36 ] || [ $3 -eq 44 ] || [ $3 -eq 52 ] || [ $3 -eq 60 ] || [ $3 -eq 100 ] || [ $3 -eq 108 ] || [ $3 -eq 116 ] || [ $3 -eq 124 ] || [ $3 -eq 132 ] || [ $3 -eq 140 ] || [ $3 -eq 149 ] || [ $3 -eq 157 ] || [ $3 -eq 165 ] || [ $3 -eq 173 ]; then
+		iwpriv wlan0 set_mib 2ndchoffset=2
+	else
+		iwpriv wlan0 set_mib 2ndchoffset=1
+	fi	
+	iwpriv wlan0 set_mib channel=$3
+	iwpriv wlan0 set_mib ssid=$2
+	iwpriv wlan0 set_mib authtype=0
+	iwpriv wlan0 set_mib encmode=0
+	brctl addif br0 wlan0
+	ifconfig wlan0 up
+	;;
+layout)
+	case $2 in
+	router)
+		rtlioc routermode
+		rtlioc enlan
+		;;
+	bridge)
+		rtlioc bridgemode
+		;;
+	esac
+	;;
+button)
+	case $2 in
+	reset)
+		usockc /var/gpio_ctrl GPIO_FRESET
+		cat /var/gpio_ctrl_result
+		;;
+	wps)
+		usockc /var/gpio_ctrl GPIO_WPS
+		cat /var/gpio_ctrl_result
+		;;
+	esac
+	;;
+led)
+	case "$2" in
+    status_on)
+        usockc /var/gpio_ctrl STATUS_GREEN
+		;;
+    status_off)
+        usockc /var/gpio_ctrl STATUS_NONE
+        ;;
+	wlan_on)
+		usockc /var/gpio_ctrl WLAN_ENABLED
+		;;
+	wlan_off)
+		usockc /var/gpio_ctrl WLAN_DISABLED
+		;;
+	wps_on)
+		usockc /var/gpio_ctrl WPS_ON
+		;;
+	wps_off)
+		usockc /var/gpio_ctrl WPS_NONE
+		;;
+	esac
+	;;
+ant)
+	usockc /var/gpio_ctrl GPIO_ANT_SC 
+	cat /var/gpio_ctrl_result
+	;;
+sigr)
+	case $2 in
+	0)
+		flash set wlan0 HW_11N_RESERVED10 0
+		flash get wlan0 HW_11N_RESERVED10
+		;;
+	1)
+		flash set wlan0 HW_11N_RESERVED10 1
+		flash get wlan0 HW_11N_RESERVED10
+		;;
+	esac
+	;;
+mode)
+	case $2 in
+	on)
+		devdata set -e mfcmode=1
+                flash set wlan0 HW_11N_RESERVED9 1
+                flash get wlan0 HW_11N_RESERVED9
+		echo "Enable mfc mode!"
+		;;
+	off)
+		devdata set -e mfcmode=0
+                flash set wlan0 HW_11N_RESERVED9 0
+                flash get wlan0 HW_11N_RESERVED9
+		echo "Disable mfc mode!"		
+		;;
+	state)
+		MFCST=`devdata get -e mfcmode`
+		if [ "$MFCST" == "1" ]; then
+			echo "mfc mode is enabled."
+		else
+			echo "mfc mode is disabled."
+		fi
+		;;
+	esac
+	;;	
+*)
+	echo "Usage: mfc {command} <params>                              "
+	echo "Commands:                                                  "
+	echo "  init <LANMAC> <WLAN24MAC> <WLAN5MAC> <WANMAC> <COUNTRYCODE> <HWREV> <PIN> <WIFIPASSWORD> <WLAN24SSID> <WLAN5SSID> <S/N>"
+	echo "                             Device Initialization         "
+	echo "                             Support Countrycode : US NA GB EU ES FR JP IL TW RU CN KR AU CA SG LA BR"
+	echo "  save                       Save current setting to flash"
+	echo "  wlan24 <SSID> <Channel> <Bandwidth>                      "
+	echo "                             Configure WLAN for test       "
+	echo "                             Bandwidth: HT20/HT40          "
+	echo "  wlan5 <SSID> <Channel> <Bandwidth>                       "
+	echo "                             Configure WLAN for test       "
+	echo "                             Bandwidth: HT20/HT40/HT80     "
+	echo "  freset                     Factory reset                 "
+	echo "  isfreset                   Check device default or not   "
+	echo "  dump                       Dump devdata                  "
+	echo "  get <NAME>                 Get devdata                   "
+	echo "  set <NAME>=<VALUE>         Set devdata                   "
+	echo "  ver                        Get firmware version          "
+	echo "  test on                    Turn on test mode             "
+	echo "  test off                   Turn off test mode            "
+	echo "  button {reset|wps}										 "
+	echo "      reset                  Get reset button status       "
+	echo "      wps                    Get WPS button status"
+	echo "  led {status_on|status_off|wlan_on|wlan_off|wps_on|wps_off}"
+	echo "      status_on              Turn on status led."
+	echo "      status_off             Turn off status led."
+	echo "      wlan_on                Turn on WLAN led."
+	echo "      wlan_off               Turn off WLAN led."
+	echo "      wps_on                 Turn on WPS led."
+	echo "      wps_off                Turn off WPS led."
+	echo "  ant                        Check Antenna short circuit"
+	echo "  sigr {0|1}                 0: Normal mode; 1: MP mode."
+	echo "  mode {on|off|state}              off: Normal mode; on: MP mode."
+	;;
+esac

@@ -1,4 +1,4 @@
-FROM firmianay/binwalk:noentry
+FROM binwalk:noentry
 
 WORKDIR /root
 
@@ -9,4 +9,6 @@ RUN apt-get update && \
     apt-get install -y qemu-system-arm qemu-system-mips qemu-system-x86 qemu-utils && \
     apt-get install -y --no-install-recommends curl openssh-server && \
     sed -i "s/PermitRootLogin prohibit-password/PermitRootLogin yes/g" /etc/ssh/sshd_config && echo "root:root" | chpasswd && echo "GatewayPorts yes" >> /etc/ssh/sshd_config && \
-    pip3 install python-magic && rm -rf /var/lib/apt/lists/*
+    pip3 install python-magic
+    
+RUN rm -rf /var/lib/apt/lists/*
